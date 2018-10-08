@@ -130,43 +130,37 @@ There are a handful of keyboard / mouse commands to help with the simulator itse
  - Space - pause simulation
 
 
+## The Tasks ##
 
-
-### Testing it Out ###
+#### Scenario 1: Intro
 
 When you run the simulator, you'll notice your quad is falling straight down.  This is due to the fact that the thrusts are simply being set to:
+
+Therefore, if the mass doesn't match the actual mass of the quad, it'll fall down.
 
 ```
 QuadControlParams.Mass * 9.81 / 4
 ```
 
-Therefore, if the mass doesn't match the actual mass of the quad, it'll fall down.  Take a moment to tune the `Mass` parameter in `QuadControlParams.txt` to make the vehicle more or less stay in the same spot.
+In this scenario, we adjust the `Mass` of the drone in [/config/QuadControlParams.txt](./config/QuadControlParams.txt) until it hovers for a bit:
 
-Note: if you want to come back to this later, this scenario is "1_Intro".
+The mass of quadrotor is adjusted to make the quad more or less stay in the same spot.
 
-With the proper mass, your simulation should look a little like this:
+With the proper mass = 0.5.
 
 <p align="center">
 <img src="animations/scenario1.gif" width="500"/>
 </p>
 
+When the scenario is passing the test, you should see this line on the standard output:
 
-## The Tasks ##
+```
+PASS: ABS(Quad.PosFollowErr) was less than 0.500000 for at least 0.800000 seconds
+```
 
-For this project, you will be building a controller in C++.  You will be implementing and tuning this controller in several steps.
+#### Scenario 2: Body rate and roll/pitch control
 
-You may find it helpful to consult the [Python controller code](https://github.com/udacity/FCND-Controls/blob/solution/controller.py) as a reference when you build out this controller in C++.
-
-#### Notes on Parameter Tuning
-1. **Comparison to Python**: Note that the vehicle you'll be controlling in this portion of the project has different parameters than the vehicle that's controlled by the Python code linked to above. **The tuning parameters that work for the Python controller will not work for this controller**
-
-2. **Parameter Ranges**: You can find the vehicle's control parameters in a file called `QuadControlParams.txt`. The default values for these parameters are all too small by a factor of somewhere between about 2X and 4X. So if a parameter has a starting value of 12, it will likely have a value somewhere between 24 and 48 once it's properly tuned.
-
-3. **Parameter Ratios**: In this [one-page document](https://www.overleaf.com/read/bgrkghpggnyc#/61023787/) you can find a derivation of the ratio of velocity proportional gain to position proportional gain for a critically damped double integrator system. The ratio of `kpV / kpP` should be 4.
-
-### Body rate and roll/pitch control (scenario 2) ###
-
-First, you will implement the body rate and roll / pitch control.  For the simulation, you will use `Scenario 2`.  In this scenario, you will see a quad above the origin.  It is created with a small initial rotation speed about its roll axis.  Your controller will need to stabilize the rotational motion and bring the vehicle back to level attitude.
+  For the simulation, you will use `Scenario 2`.  In this scenario, you will see a quad above the origin.  It is created with a small initial rotation speed about its roll axis.  Your controller will need to stabilize the rotational motion and bring the vehicle back to level attitude.
 
 To accomplish this, you will:
 
@@ -176,9 +170,13 @@ To accomplish this, you will:
  - implement the code in the function `BodyRateControl()`
  - Tune `kpPQR` in `QuadControlParams.txt` to get the vehicle to stop spinning quickly but not overshoot
 
-If successful, you should see the rotation of the vehicle about roll (omega.x) get controlled to 0 while other rates remain zero.  Note that the vehicle will keep flying off quite quickly, since the angle is not yet being controlled back to 0.  Also note that some overshoot will happen due to motor dynamics!.
+The [GenerateMotorCommands method](./src/QuadControl.cpp#L58-L89) needs to be coded resolving this equations:
 
-If you come back to this step after the next step, you can try tuning just the body rate omega (without the outside angle controller) by setting `QuadControlParams.kpBank = 0`.
+![Moment force equations](./images/moments_force_eq.gif)
+
+Where all the `F_1` to `F_4` are the motor's thrust, `tao(x,y,z)` are the moments on each direction, `F_t` is the total thrust, kappa is the drag/thrust ratio and `l` is the drone arm length over square root of two. These equations come from the classroom lectures. There are a couple of things to consider. For example, on NED coordinates the `z` axis is inverted that is why the moment on `z` was inverted here. Another observation while implementing this is that `F_3` and `F_4` are switched, e.g. `F_3` in the lectures is `F_4` on the simulator and the same for `F_4`.
+
+The second step is to implement the [BodyRateControl method](./src/QuadControl.cpp#L94-L117) applying a [P controller](https://en.wikipedia.org/wiki/Proportional_control) and the moments of inertia. At this point, the `kpPQR` parameter has to be tuned to stop the drone from flipping, but first, some thrust needs to be commanded in the altitude control because we don't have thrust commanded on the `GenerateMotorCommands` anymore. A good value is `thurst = mass * CONST_GRAVITY`.
 
 2. Implement roll / pitch control
 We won't be worrying about yaw just yet.
@@ -186,14 +184,28 @@ We won't be worrying about yaw just yet.
  - implement the code in the function `RollPitchControl()`
  - Tune `kpBank` in `QuadControlParams.txt` to minimize settling time but avoid too much overshoot
 
-If successful you should now see the quad level itself (as shown below), though it’ll still be flying away slowly since we’re not controlling velocity/position!  You should also see the vehicle angle (Roll) get controlled to 0.
+ For this implementation, you need to apply a few equations. You need to apply a P controller to the elements `R13` and `R23` of the [rotation matrix](https://en.wikipedia.org/wiki/Rotation_matrix) from body-frame accelerations and world frame accelerations:
+
+![Roll and pitch P controller](./images/roll_pitch_p_controller.gif)
+
+But the problem is you need to output roll and pitch rates; so, there is another equation to apply:
+
+![From b to pq](./images/roll_pitch_from_b_to_pq.gif)
+
+It is important to notice you received thrust and thrust it need to be inverted and converted to acceleration before applying the equations. After the implementation is done, start tuning `kpBank` and `kpPQR` until the drone flies more or less stable upward:
 
 <p align="center">
 <img src="animations/scenario2.gif" width="500"/>
 </p>
 
+When the scenario is passing the test, you should see this line on the standard output:
 
-### Position/velocity and yaw angle control (scenario 3) ###
+```
+PASS: ABS(Quad.Roll) was less than 0.025000 for at least 0.750000 seconds
+PASS: ABS(Quad.Omega.X) was less than 2.500000 for at least 0.750000 seconds
+```
+
+#### Scenario 3: Position/velocity and yaw angle control
 
 Next, you will implement the position, altitude and yaw control for your quad.  For the simulation, you will use `Scenario 3`.  This will create 2 identical quads, one offset from its target point (but initialized with yaw = 0) and second offset from target point but yaw = 45 degrees.
 
@@ -202,53 +214,68 @@ Next, you will implement the position, altitude and yaw control for your quad.  
  - tune parameters `kpPosZ` and `kpPosZ`
  - tune parameters `kpVelXY` and `kpVelZ`
 
-If successful, the quads should be going to their destination points and tracking error should be going down (as shown below). However, one quad remains rotated in yaw.
+There are three methods to implement here:
 
- - implement the code in the function `YawControl()`
- - tune parameters `kpYaw` and the 3rd (z) component of `kpPQR`
+- [AltitudeControl](./src/QuadControl.cpp#L160-L191): This is a [PD controller](https://en.wikipedia.org/wiki/PID_controller) to control the acceleration meaning the thrust needed to control the altitude.
 
-Tune position control for settling time. Don’t try to tune yaw control too tightly, as yaw control requires a lot of control authority from a quadcopter and can really affect other degrees of freedom.  This is why you often see quadcopters with tilted motors, better yaw authority!
+![Altitude controller equations](./images/altitude_eq.gif)
+
+To test this, go back to scenario 2 and make sure the drone doesn't fall. In that scenario, the PID is configured not to act, and the thrust should be `mass * CONST_GRAVITY`.
+
+- [LateralPositionControl](./src/QuadControl.cpp#L197-L234) This is another PID controller to control acceleration on `x` and `y`.
+
+- [YawControl](./src/QuadControl.cpp#L240-L264): This is a simpler case because it is P controller. It is better to optimize the yaw to be between `[-pi, pi]`.
+
+Once all the code is implemented, put all the `kpYaw`,`kpPosXY`, `kpVelXY`, `kpPosZ` and `kpVelZ` to zero. Take a deep breath, and start tuning from the altitude controller to the yaw controller. 
 
 <p align="center">
 <img src="animations/scenario3.gif" width="500"/>
 </p>
 
-**Hint:**  For a second order system, such as the one for this quadcopter, the velocity gain (`kpVelXY` and `kpVelZ`) should be at least ~3-4 times greater than the respective position gain (`kpPosXY` and `kpPosZ`).
+When the scenario is passing the test, you should see this line on the standard output:
 
-### Non-idealities and robustness (scenario 4) ###
+```
+PASS: ABS(Quad1.Pos.X) was less than 0.100000 for at least 1.250000 seconds
+PASS: ABS(Quad2.Pos.X) was less than 0.100000 for at least 1.250000 seconds
+PASS: ABS(Quad2.Yaw) was less than 0.100000 for at least 1.000000 seconds
+```
 
-In this part, we will explore some of the non-idealities and robustness of a controller.  For this simulation, we will use `Scenario 4`.  This is a configuration with 3 quads that are all are trying to move one meter forward.  However, this time, these quads are all a bit different:
- - The green quad has its center of mass shifted back
- - The orange vehicle is an ideal quad
- - The red vehicle is heavier than usual
+#### Scenario 4: Non-idealities and robustness
 
-1. Run your controller & parameter set from Step 3.  Do all the quads seem to be moving OK?  If not, try to tweak the controller parameters to work for all 3 (tip: relax the controller).
-
-2. Edit `AltitudeControl()` to add basic integral control to help with the different-mass vehicle.
-
-3. Tune the integral control, and other control parameters until all the quads successfully move properly.  Your drones' motion should look like this:
+This is a fun scenario. Everything is coded and tuned already, right? Ok, we need to add an integral part to the altitude controller to move it from PD to PID controller. What happens to me here is that everything starts not working correctly, and I have to tune everything again, starting from scenario -1. It is hard but doable:
 
 <p align="center">
 <img src="animations/scenario4.gif" width="500"/>
 </p>
 
+When the scenario is passing the test, you should see this line on the standard output:
 
-### Tracking trajectories ###
+```
+PASS: ABS(Quad1.PosFollowErr) was less than 0.100000 for at least 1.500000 seconds
+PASS: ABS(Quad2.PosFollowErr) was less than 0.100000 for at least 1.500000 seconds
+PASS: ABS(Quad3.PosFollowErr) was less than 0.100000 for at least 1.500000 seconds
+```
 
-Now that we have all the working parts of a controller, you will put it all together and test it's performance once again on a trajectory.  For this simulation, you will use `Scenario 5`.  This scenario has two quadcopters:
- - the orange one is following `traj/FigureEight.txt`
- - the other one is following `traj/FigureEightFF.txt` - for now this is the same trajectory.  For those interested in seeing how you might be able to improve the performance of your drone by adjusting how the trajectory is defined, check out **Extra Challenge 1** below!
+#### Scenario 5: Tracking trajectories
 
-How well is your drone able to follow the trajectory?  It is able to hold to the path fairly well?
+This is the final non-optional scenario. The drone needs to follow a trajectory. It will show all the errors in your code and also force you to tune some parameters again. Remember there are comments on the controller methods regarding limits that need to be imposed on the system. Here those limits are required in order to pass.
+
+<p align="center">
+<img src="animations/scenario5.gif" width="500"/>
+</p>
+
+When the scenario is passing the test, you should see this line on the standard output:
+
+```
+PASS: ABS(Quad2.PosFollowErr) was less than 0.250000 for at least 3.000000 seconds
+```
 
 
-### Extra Challenge 1 (Optional) ###
+### Extra Challenge 1 (Optional) ### (Not attempted)
 
 You will notice that initially these two trajectories are the same. Let's work on improving some performance of the trajectory itself.
 
-1. Inspect the python script `traj/MakePeriodicTrajectory.py`.  Can you figure out a way to generate a trajectory that has velocity (not just position) information?
-
-2. Generate a new `FigureEightFF.txt` that has velocity terms
+Generate a new `FigureEightFF.txt` that has velocity terms
 Did the velocity-specified trajectory make a difference? Why?
 
 With the two different trajectories, your drones' motions should look like this:
@@ -258,7 +285,7 @@ With the two different trajectories, your drones' motions should look like this:
 </p>
 
 
-### Extra Challenge 2 (Optional) ###
+### Extra Challenge 2 (Optional) ### (Not attempted)
 
 For flying a trajectory, is there a way to provide even more information for even better tracking?
 
